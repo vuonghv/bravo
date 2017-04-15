@@ -338,6 +338,16 @@ void editor_draw_rows(struct abuf *ab) {
     }
 }
 
+void editor_draw_status_bar(struct abuf *ab) {
+    ab_append(ab, "\x1b[7m", 4); // black text on white background
+    int len = 0;
+    while (len < E.screencols) {
+        ab_append(ab, " ", 1);
+        len++;
+    }
+    ab_append(ab, "\x1b[m", 3); // recover
+}
+
 void editor_refresh_screen() {
     editor_scroll();
 
@@ -347,6 +357,7 @@ void editor_refresh_screen() {
     ab_append(&ab, "\x1b[H", 3);    // Move the cursor to the top-left
 
     editor_draw_rows(&ab);
+    editor_draw_status_bar(&ab);
 
     // Move cursor to cy, cx position
     char buf[32];
