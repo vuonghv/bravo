@@ -345,13 +345,20 @@ void editor_draw_rows(struct abuf *ab) {
 void editor_draw_status_bar(struct abuf *ab) {
     ab_append(ab, "\x1b[7m", 4); // black text on white background
     char status[80];
+    char rstatus[80];
     int len = snprintf(status, sizeof(status), "%.20s - %d lines",
             E.filename ? E.filename : "[No Name]", E.numrows);
+    int rlen = snprintf(rstatus, sizeof(rstatus), "%d/%d", E.cy + 1, E.numrows);
     if (len > E.screencols) len = E.screencols;
     ab_append(ab, status, len);
     while (len < E.screencols) {
-        ab_append(ab, " ", 1);
-        len++;
+        if (E.screencols - len == rlen) {
+            ab_append(ab, rstatus, rlen);
+            break;
+        } else {
+            ab_append(ab, " ", 1);
+            len++;
+        }
     }
     ab_append(ab, "\x1b[m", 3); // recover
 }
