@@ -368,6 +368,14 @@ void editor_draw_status_bar(struct abuf *ab) {
     ab_append(ab, "\r\n", 2);
 }
 
+void editor_draw_message_bar(struct abuf *ab) {
+    ab_append(ab, "\x1b[K", 3);
+    int msglen = strlen(E.statusmsg);
+    if (msglen > E.screencols) msglen = E.screencols;
+    if (msglen && time(NULL) - E.statusmsg_time < 5)
+        ab_append(ab, E.statusmsg, msglen);
+}
+    
 void editor_refresh_screen() {
     editor_scroll();
 
@@ -378,6 +386,7 @@ void editor_refresh_screen() {
 
     editor_draw_rows(&ab);
     editor_draw_status_bar(&ab);
+    editor_draw_message_bar(&ab);
 
     // Move cursor to cy, cx position
     char buf[32];
