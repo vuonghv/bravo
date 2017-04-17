@@ -69,7 +69,7 @@ struct editor_config E;
 
 void editor_set_status_message(const char *fmt, ...);
 void editor_refresh_screen();
-char *editor_prompt(char *prompt);
+char *editor_prompt(char *prompt, void (*callback)(char *, int));
 
 /*** terminal ***/
 
@@ -208,6 +208,19 @@ int editor_row_cx_to_rx(erow *row, int cx) {
         rx++;
     }
     return rx;
+}
+
+int editor_row_rx_to_cx(erow *row, int rx) {
+    int cur_rx = 0;
+    int cx;
+    for (cx = 0; cx < row->size; cx++) {
+        if (row->chars[cx] == '\t')
+            cur_rx += (KILO_TAB_STOP - 1) - (cur_rx % KILO_TAB_STOP);
+        cur_rx++;
+
+        if (cur_rx > rx) return cx;
+    }
+    return cx;
 }
 
 void editor_update_row(erow *row) {
@@ -377,7 +390,7 @@ void editor_open(char *filename) {
 
 void editor_save() {
     if (E.filename == NULL) {
-        E.filename = editor_prompt("Save as: %s");
+        E.filename = editor_prompt("Save as: %s", NULL);
         if (E.filename == NULL) {
             editor_set_status_message("Save aborted");
             return;
@@ -403,6 +416,34 @@ void editor_save() {
 
     free(buf);
     editor_set_status_message("Can't save! I/O error: %s", strerror(errno));
+}
+
+/*** find ***/
+
+void editor_find_callback(char *query, int key) {
+    if (key == '\r' || key == '\x1b') {
+        return;
+    }
+
+    int i;
+    for (i = 0; i < E.numrows; i++) {
+        erow *row = &E.row[i];
+        char *match = strstr(row->render, query);
+        if (match) {
+            E.cy = i;
+            E.cx = editor_row_rx_to_cx(row, match - row->render);
+            E.rowoff = E.numrows;
+            break;
+        }
+    }
+}
+
+void editor_find() {
+    char *query = editor_prompt("Search: %s (ESC to cancel)", editor_find_callback);
+
+    if (query) {
+        free(query);
+    }
 }
 
 /*** append buffer ***/
@@ -556,7 +597,7 @@ void editor_set_status_message(const char *fmt, ...) {
 
 /*** input ***/
 
-char *editor_prompt(char *prompt) {
+char *editor_prompt(char *prompt, void (*callback)(char *, int)) {
     size_t bufsize = 128;
     char *buf = malloc(bufsize);
 
@@ -572,11 +613,13 @@ char *editor_prompt(char *prompt) {
             if (buflen != 0) buf[--buflen] = '\0';
         } else if (c == '\x1b') {
             editor_set_status_message("");
+            if (callback) callback(buf, c);
             free(buf);
             return NULL;
         } else if (c == '\r') {
             if (buflen != 0) {
                 editor_set_status_message("");
+                if (callback) callback(buf, c);
                 return buf;
             }
         } else if (!iscntrl(c) && c < 128) {
@@ -587,6 +630,8 @@ char *editor_prompt(char *prompt) {
             buf[buflen++] = c;
             buf[buflen] = '\0';
         }
+
+        if (callback) callback(buf, c);
     }
 }
 
@@ -664,6 +709,10 @@ void editor_process_key_press() {
                 E.cx = E.row[E.cy].size;
             break;
 
+        case CTRL_KEY('f'):
+            editor_find();
+            break;
+
         case BACKSPACE:
         case CTRL_KEY('h'):
         case DEL_KEY:
@@ -734,7 +783,8 @@ int main(int argc, char *argv[]) {
         editor_open(argv[1]);
     }
 
-    editor_set_status_message("HELP: Ctrl-S = save | Ctrl-Q = quit");
+    editor_set_status_message(
+            "HELP: Ctrl-S = save | Ctrl-Q = quit | Ctrl-F = find");
 
     while (1) {
         editor_refresh_screen();
