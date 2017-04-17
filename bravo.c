@@ -24,6 +24,7 @@
 #define CTRL_KEY(k) ((k) & 0x1f)
 
 enum editor_key {
+    BACKSPACE = 127,
     ARROW_LEFT = 1000,
     ARROW_RIGHT,
     ARROW_UP,
@@ -236,6 +237,25 @@ void editor_append_row(char *s, size_t len) {
     editor_update_row(&E.row[at]);
 
     E.numrows++;
+}
+
+void editor_row_insert_char(erow *row, int at, int c) {
+    if (at < 0 || at > row->size) at = row->size;
+    row->chars = realloc(row->chars, row->size + 2); // new char + NULL
+    memmove(&row->chars[at + 1], &row->chars[at], row->size - at + 1);
+    row->size++;
+    row->chars[at] = c;
+    editor_update_row(row); // Update render, rsize
+}
+
+/*** editor operation ***/
+
+void editor_insert_char(int c) {
+    if (E.cy == E.numrows) {
+        editor_append_row("", 0);
+    }
+    editor_row_insert_char(&E.row[E.cy], E.cx, c);
+    E.cx++;
 }
 
 /*** file i/o ***/
@@ -452,6 +472,10 @@ void editor_process_key_press() {
     int c = editor_read_key();
 
     switch (c) {
+        case '\r':
+            /* TODO */
+            break;
+
         case CTRL_KEY('q'):
             // cleare screeen
             write(STDOUT_FILENO, "\x1b[2J", 4);
@@ -466,6 +490,12 @@ void editor_process_key_press() {
         case END_KEY:
             if (E.cy < E.numrows)
                 E.cx = E.row[E.cy].size;
+            break;
+
+        case BACKSPACE:
+        case CTRL_KEY('h'):
+        case DEL_KEY:
+            /* TODO */
             break;
 
         case PAGE_UP:
@@ -490,6 +520,14 @@ void editor_process_key_press() {
         case ARROW_LEFT:
         case ARROW_RIGHT:
             editor_move_cursor(c);
+            break;
+
+        case CTRL_KEY('l'):
+        case '\x1b':
+            break;
+
+        default:
+            editor_insert_char(c);
             break;
     }
 }
