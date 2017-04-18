@@ -38,6 +38,12 @@ enum editor_key {
     PAGE_DOWN
 };
 
+enum editor_highlight {
+    HL_NORMAL = 0,
+    HL_NUMBER,
+    HL_MATCH
+};
+
 /*** data ***/
 
 typedef struct erow {
@@ -45,6 +51,7 @@ typedef struct erow {
     int rsize;
     char *chars;
     char *render;
+    unsigned char *hl;
 } erow;
 
 struct editor_config {
@@ -197,6 +204,44 @@ int get_window_size(int *rows, int *cols) {
     }
 }
 
+/*** syntax highlighting ***/
+
+int is_separator(int c) {
+    return isspace(c) || c == '\0' || strchr(",.()+-/*=~%<>[];", c) != NULL;
+}
+
+void editor_update_syntax(erow *row) {
+    row->hl = realloc(row->hl, row->rsize);
+    memset(row->hl, HL_NORMAL, row->rsize);
+
+    int prev_sep = 1;
+
+    int i = 0;
+    while (i < row->rsize) {
+        char c = row->render[i];
+        unsigned char prev_hl = (i > 0) ? row->hl[i - 1]: HL_NORMAL;
+
+        if ((isdigit(c) && (prev_sep || prev_hl == HL_NUMBER)) ||
+            (c == '.' && prev_hl == HL_NUMBER)) {
+            row->hl[i] = HL_NUMBER;
+            i++;
+            prev_sep = 0;
+            continue;
+        }
+
+        prev_sep = is_separator(c);
+        i++;
+    }
+}
+
+int editor_syntax_to_color(int hl) {
+    switch (hl) {
+        case HL_NUMBER: return 31;
+        case HL_MATCH: return 34;
+        default: return 37;
+    }
+}
+
 /*** row operatins ***/
 
 int editor_row_cx_to_rx(erow *row, int cx) {
@@ -243,6 +288,8 @@ void editor_update_row(erow *row) {
     }
     row->render[idx] = '\0';
     row->rsize = idx;
+
+    editor_update_syntax(row);
 }
 
 void editor_insert_row(int at, char *s, size_t len) {
@@ -258,6 +305,7 @@ void editor_insert_row(int at, char *s, size_t len) {
 
     E.row[at].rsize = 0;
     E.row[at].render = NULL;
+    E.row[at].hl = NULL;
     editor_update_row(&E.row[at]);
 
     E.numrows++;
@@ -267,6 +315,7 @@ void editor_insert_row(int at, char *s, size_t len) {
 void editor_free_row(erow *row) {
     free(row->render);
     free(row->chars);
+    free(row->hl);
 }
 
 void editor_del_row(int at) {
@@ -424,6 +473,15 @@ void editor_find_callback(char *query, int key) {
     static int last_match = -1;
     static int direction = 1;
 
+    static int saved_hl_line;
+    static char *saved_hl = NULL;
+
+    if (saved_hl) {
+        memcpy(E.row[saved_hl_line].hl, saved_hl, E.row[saved_hl_line].rsize);
+        free(saved_hl);
+        saved_hl = NULL;
+    }
+
     if (key == '\r' || key == '\x1b') {
         last_match = -1;
         direction = 1;
@@ -452,6 +510,11 @@ void editor_find_callback(char *query, int key) {
             E.cy = current;
             E.cx = editor_row_rx_to_cx(row, match - row->render);
             E.rowoff = E.numrows;
+
+            saved_hl_line = current;
+            saved_hl = malloc(row->rsize);
+            memcpy(saved_hl, row->hl, row->rsize);
+            memset(&row->hl[match - row->render], HL_MATCH, strlen(query));
             break;
         }
     }
@@ -553,7 +616,28 @@ void editor_draw_rows(struct abuf *ab) {
             int len = E.row[filerow].rsize - E.coloff;
             if (len < 0) len = 0;
             if (len > E.screencols) len = E.screencols;
-            ab_append(ab, &E.row[filerow].render[E.coloff], len);
+            char *c = &E.row[filerow].render[E.coloff];
+            unsigned char *hl = &E.row[filerow].hl[E.coloff];
+            int current_color = -1;
+            for (int j = 0; j < len; j++) {
+                if (hl[j] == HL_NORMAL) {
+                    if (current_color != -1) {
+                        ab_append(ab, "\x1b[39m", 5);
+                        current_color = -1;
+                    }
+                    ab_append(ab, &c[j], 1);
+                } else {
+                    int color = editor_syntax_to_color(hl[j]);
+                    if (color != current_color) {
+                        current_color = color;
+                        char buf[16];
+                        int clen = snprintf(buf, sizeof(buf), "\x1b[%dm", color);
+                        ab_append(ab, buf, clen);
+                    }
+                    ab_append(ab, &c[j], 1);
+                }
+            }
+            ab_append(ab, "\x1b[39m", 5);
         }
 
         //Erase from the active position to the end of the line, inclusive
